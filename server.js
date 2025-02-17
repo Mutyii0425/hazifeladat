@@ -1,76 +1,73 @@
-// server.js - REST API szerver
 const express = require('express');
-const cors = require('cors');
+const bodyParser = require('body-parser');
 const db = require('./data');
-const clothingSchema = require('./validation');
 
 const app = express();
-const port = 3000;
+const PORT = 3000;
 
-app.use(cors());
-app.use(express.json());
+app.use(bodyParser.json());
 
-const categories = ['shirts', 'pants', 'shoes', 'jackets', 'accessories'];
+// Általános lekérdező végpont minden táblához
+app.get('/:table', (req, res) => {
+    const { table } = req.params;
+    const validTables = ['shirts', 'pants', 'shoes', 'jackets', 'accessories'];
+    
+    if (!validTables.includes(table)) {
+        return res.status(400).json({ error: 'Érvénytelen tábla' });
+    }
 
-// Új ruházati termék hozzáadása
-app.post('/api/v1/:category', (req, res) => {
-    const { category } = req.params;
-    if (!categories.includes(category)) return res.status(400).json({ message: 'Érvénytelen kategória' });
-
-    const { error } = clothingSchema.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message });
-
-    const { brand, size, color, price, stock } = req.body;
-    db.run(`INSERT INTO ${category} (brand, size, color, price, stock) VALUES (?, ?, ?, ?, ?)`,
-        [brand, size, color, price, stock],
-        function (err) {
-            if (err) return res.status(500).json({ error: err.message });
-            res.json({ message: 'Sikeres hozzáadás', id: this.lastID });
+    db.all(`SELECT * FROM ${table}`, (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
         }
-    );
-});
-
-// Összes ruházati termék lekérése adott kategóriában
-app.get('/api/v1/:category', (req, res) => {
-    const { category } = req.params;
-    if (!categories.includes(category)) return res.status(400).json({ message: 'Érvénytelen kategória' });
-
-    db.all(`SELECT * FROM ${category}`, [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
 });
 
-// Ruházati termék frissítése
-app.put('/api/v1/:category/:id', (req, res) => {
-    const { category, id } = req.params;
-    if (!categories.includes(category)) return res.status(400).json({ message: 'Érvénytelen kategória' });
+// Új elem hozzáadása
+app.post('/:table', (req, res) => {
+    const { table } = req.params;
+    const validTables = {
+        shirts: ['brand', 'size', 'color', 'material', 'price'],
+        pants: ['brand', 'size', 'color', 'material', 'price'],
+        shoes: ['brand', 'size', 'color', 'material', 'price'],
+        jackets: ['brand', 'size', 'color', 'material', 'price'],
+        accessories: ['type', 'brand', 'color', 'material', 'price']
+    };
 
-    const { error } = clothingSchema.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message });
+    if (!validTables[table]) {
+        return res.status(400).json({ error: 'Érvénytelen tábla' });
+    }
 
-    const { brand, size, color, price, stock } = req.body;
-    db.run(`UPDATE ${category} SET brand = ?, size = ?, color = ?, price = ?, stock = ? WHERE id = ?`,
-        [brand, size, color, price, stock, id],
-        function (err) {
-            if (err) return res.status(500).json({ error: err.message });
-            res.json({ message: 'Sikeres módosítás' });
+    const columns = validTables[table].join(', ');
+    const values = validTables[table].map(() => '?').join(', ');
+    const params = validTables[table].map(col => req.body[col]);
+
+    db.run(`INSERT INTO ${table} (${columns}) VALUES (${values})`, params, function(err) {
+        if (err) {
+            return res.status(500).json({ error: err.message });
         }
-    );
-});
-
-// Ruházati termék törlése
-app.delete('/api/v1/:category/:id', (req, res) => {
-    const { category, id } = req.params;
-    if (!categories.includes(category)) return res.status(400).json({ message: 'Érvénytelen kategória' });
-
-    db.run(`DELETE FROM ${category} WHERE id = ?`, [id], function (err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: 'Sikeres törlés' });
+        res.json({ id: this.lastID });
     });
 });
 
-// Szerver indítása
-app.listen(port, () => {
-    console.log(`A szerver fut a ${port}-es porton.`);
+// Elem törlése
+app.delete('/:table/:id', (req, res) => {
+    const { table, id } = req.params;
+    const validTables = ['shirts', 'pants', 'shoes', 'jackets', 'accessories'];
+    
+    if (!validTables.includes(table)) {
+        return res.status(400).json({ error: 'Érvénytelen tábla' });
+    }
+
+    db.run(`DELETE FROM ${table} WHERE id = ?`, id, function(err) {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({ message: 'Sikeresen törölve', changes: this.changes });
+    });
+});
+
+app.listen(PORT, () => {
+    console.log(`Szerver fut a http://localhost:${PORT} címen`);
 });
